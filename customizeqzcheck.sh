@@ -2,7 +2,7 @@
 #by spiritlhl
 #from https://github.com/spiritLHLS/ecs
 
-ver="2023.06.27"
+ver="2026.02.28"
 changeLog="IP质量测试，由频道 https://t.me/+UHVoo2U4VyA5NTQ1 原创"
 
 red() {
@@ -72,17 +72,7 @@ _exit() {
 }
 
 checkroot() {
-    [[ $EUID -ne 0 ]] && echo -e "${RED}请使用 root 用户运行本脚本！${PLAIN}" && exit 1
-}
-
-checkupdate() {
-    echo "正在更新包管理源"
-    if [ "${release}" == "centos" ]; then
-        yum update >/dev/null 2>&1
-    else
-        apt-get update >/dev/null 2>&1
-    fi
-
+    [[ $EUID -ne 0 ]] && _red "请使用 root 用户运行本脚本！" && exit 1
 }
 
 checkupdate() {
@@ -98,7 +88,7 @@ checkupdate() {
 }
 
 checkdnsutils() {
-    if [ ! -e '/usr/bin/dnsutils' ]; then
+    if ! command -v dig >/dev/null 2>&1 && ! command -v nslookup >/dev/null 2>&1; then
         echo "正在安装 dnsutils"
         if [ "${release}" == "centos" ]; then
             # 	                    yum update > /dev/null 2>&1

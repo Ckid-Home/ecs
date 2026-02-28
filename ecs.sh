@@ -4,7 +4,7 @@
 
 cd /root >/dev/null 2>&1
 myvar=$(pwd)
-ver="2025.11.29"
+ver="2026.02.28"
 
 # =============== 默认输入设置 ===============
 RED="\033[31m"
@@ -206,7 +206,7 @@ test_ip_g=("58.60.188.222" "210.21.196.6" "120.196.165.24")
 test_area_s=("上海电信" "上海联通" "上海移动")
 test_ip_s=("202.96.209.133" "210.22.97.1" "211.136.112.200")
 test_area_b=("北京电信" "北京联通" "北京移动")
-test_ip_b=("219.141.140.10", "202.106.195.68", "221.179.155.161")
+test_ip_b=("219.141.140.10" "202.106.195.68" "221.179.155.161")
 test_area_c=("成都电信" "成都联通" "成都移动")
 test_ip_c=("61.139.2.69" "119.6.6.6" "211.137.96.205")
 test_area_g6=("广州电信" "广州联通" "广州移动")
@@ -246,7 +246,7 @@ if [ ! -d "/tmp" ]; then
     mkdir /tmp
 fi
 usage_timeout=true
-DISPLAY_RUNNING=1
+# DISPLAY_RUNNING 已改为使用 $PROGRESS_DIR/display_running 标志文件实现跨进程通信
 
 # =============== 脚本退出执行相关函数 部分 ===============
 trap _exit INT QUIT TERM
@@ -373,7 +373,7 @@ checkver() {
             _yellow "更新脚本从 $ver 到 $downloaded_version"
         fi
         mv ecs1.sh "$0"
-        ./ecs.sh
+        exec "$0" "$@"
     else
         if [ "$en_status" = true ]; then
             _green "This script is the lastes version."
@@ -429,7 +429,9 @@ check_curl() {
         ${PACKAGE_INSTALL[int]} curl
     fi
     if [ $? -ne 0 ]; then
-        apt-get -f install >/dev/null 2>&1
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get -f install >/dev/null 2>&1
+        fi
         ${PACKAGE_INSTALL[int]} curl
     fi
 }
@@ -518,7 +520,9 @@ check_tar() {
         ${PACKAGE_INSTALL[int]} tar
     fi
     if [ $? -ne 0 ]; then
-        apt-get -f install >/dev/null 2>&1
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get -f install >/dev/null 2>&1
+        fi
         ${PACKAGE_INSTALL[int]} tar >/dev/null 2>&1
     fi
 }
@@ -530,7 +534,9 @@ check_lsof() {
         ${PACKAGE_INSTALL[int]} lsof
     fi
     if [ $? -ne 0 ]; then
-        apt-get -f install >/dev/null 2>&1
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get -f install >/dev/null 2>&1
+        fi
         ${PACKAGE_INSTALL[int]} lsof >/dev/null 2>&1
     fi
 }
@@ -616,7 +622,7 @@ display_progress() {
     local progress_height=$((${#dfiles[@]} + 2)) # 进度显示所需的行数
     # 保存光标位置并隐藏光标
     echo -en "$SAVE_CURSOR$HIDE_CURSOR"
-    while [ $DISPLAY_RUNNING -eq 1 ]; do
+    while [ -f "$PROGRESS_DIR/display_running" ]; do
         # 将光标移动到保存的位置
         echo -en "$RESTORE_CURSOR"
         if [ "$en_status" = true ]; then
@@ -662,6 +668,8 @@ start_downloads() {
     done
     # 获取当前光标位置
     local current_line=$(tput lines)
+    # 创建标志文件，通知 display_progress 子进程可以继续运行
+    touch "$PROGRESS_DIR/display_running"
     # 启动后台进程来更新显示
     display_progress $current_line &
     local display_pid=$!
@@ -671,8 +679,9 @@ start_downloads() {
         echo $! >>"$PID_FILE"
     done
     wait
-    # 停止显示进程
-    DISPLAY_RUNNING=0
+    # 删除标志文件，通知 display_progress 子进程停止
+    rm -f "$PROGRESS_DIR/display_running"
+    wait "$display_pid" 2>/dev/null
 }
 
 download_file() {
@@ -680,7 +689,8 @@ download_file() {
     local output=$2
     local progress_file=$3
     # 获取文件总大小
-    local total_size=$(curl -sIkL "$url" | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+    local total_size
+    total_size=$(curl -sIkL "$url" | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
     total_size=${total_size:-0}
     # 去掉前导零，避免被当作八进制
     total_size=$((10#$total_size))
@@ -691,93 +701,66 @@ download_file() {
     if [ "$total_size" -eq 0 ]; then
         echo "无法获取 $url 的文件大小,将使用 0 作为默认值。" >&2
     fi
-    # 连续检测到下载完成的次数
-    local complete_count=0
-    # 连续检测到下载失败的次数
-    local download_failed=0
-    while true; do
-        if ! curl -Lk "$url" -o "$output" 2>&1 |
-            while true; do
-                if [ -f "$output" ]; then
-                    sleep 1
-                    local current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null)
-                    current_size=$(echo "$current_size" | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
-                    current_size=${current_size:-0}
-                    # 去掉前导零，避免被当作八进制
-                    current_size=$((10#$current_size))
-                    # 确保 current_size 是纯数字
-                    if ! [[ "$current_size" =~ ^[0-9]+$ ]]; then
-                        current_size=0
-                    fi
-                    if [ "$total_size" -gt 0 ] && [ "$current_size" -gt 0 ]; then
-                        local progress=$((current_size * 100 / total_size))
-                    else
-                        local progress=0
-                    fi
-                    echo "$progress" >"$progress_file"
-                    sleep 1
-                    # 检查是否下载完成
-                    if [ "$total_size" -gt 0 ] && [ "$current_size" -ge "$total_size" ]; then
-                        complete_count=$((complete_count + 1))
-                        # 只有连续3次检测到下载完成才退出循环
-                        if [ "$complete_count" -ge 3 ]; then
-                            break 2 # 退出外层循环
-                        fi
-                    else
-                        complete_count=0 # 如果不完整，重置计数器
-                    fi
+
+    # 后台进度监控：轮询输出文件大小并写入进度文件，直到下载进程退出
+    _dl_monitor() {
+        local mon_output="$1"
+        local mon_total="$2"
+        local mon_pfile="$3"
+        local mon_pid="$4"
+        while kill -0 "$mon_pid" 2>/dev/null; do
+            if [ -f "$mon_output" ]; then
+                local cur_size
+                cur_size=$(stat -c%s "$mon_output" 2>/dev/null || stat -f%z "$mon_output" 2>/dev/null)
+                cur_size=$(echo "$cur_size" | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+                cur_size=${cur_size:-0}
+                cur_size=$((10#$cur_size))
+                if ! [[ "$cur_size" =~ ^[0-9]+$ ]]; then cur_size=0; fi
+                local prog=0
+                if [ "$mon_total" -gt 0 ] && [ "$cur_size" -gt 0 ]; then
+                    prog=$((cur_size * 100 / mon_total))
                 fi
-            done; then
-            complete_count=0
-            download_failed=$((download_failed + 1))
-            if [ "$download_failed" -ge 2 ]; then
-                echo "curl 和 wget 下载都失败,退出下载。" >&2
-                return 1 # 返回错误码
+                echo "$prog" >"$mon_pfile"
             fi
-            echo "curl 下载失败,切换到 wget 下载。" >&2
-            wget -O "$output" "$url" 2>&1 |
-                while true; do
-                    if [ -f "$output" ]; then
-                        sleep 1
-                        local current_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null)
-                        current_size=$(echo "$current_size" | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
-                        current_size=${current_size:-0}
-                        # 去掉前导零，避免被当作八进制
-                        current_size=$((10#$current_size))
-                        # 确保 current_size 是纯数字
-                        if ! [[ "$current_size" =~ ^[0-9]+$ ]]; then
-                            current_size=0
-                        fi
-                        if [ "$total_size" -gt 0 ] && [ "$current_size" -gt 0 ]; then
-                            local progress=$((current_size * 100 / total_size))
-                        else
-                            local progress=0
-                        fi
-                        echo "$progress" >"$progress_file"
-                        sleep 1
-                        # 检查是否下载完成
-                        if [ "$total_size" -gt 0 ] && [ "$current_size" -ge "$total_size" ]; then
-                            complete_count=$((complete_count + 1))
-                            # 只有连续3次检测到下载完成才退出循环
-                            if [ "$complete_count" -ge 3 ]; then
-                                break 2 # 退出外层循环
-                            fi
-                        else
-                            complete_count=0 # 如果不完整，重置计数器
-                        fi
-                    fi
-                done
-        else
-            break # curl 下载成功，退出外层循环
+            sleep 1
+        done
+    }
+
+    local download_failed=0
+    # 尝试 curl 下载（后台运行，配合独立监控进程更新进度）
+    curl -Lk "$url" -o "$output" >/dev/null 2>&1 &
+    local dl_pid=$!
+    _dl_monitor "$output" "$total_size" "$progress_file" "$dl_pid" &
+    local monitor_pid=$!
+    wait "$dl_pid"
+    local curl_exit=$?
+    wait "$monitor_pid" 2>/dev/null
+
+    if [ $curl_exit -ne 0 ]; then
+        download_failed=$((download_failed + 1))
+        echo "curl 下载失败,切换到 wget 下载。" >&2
+        rm -f "$output"
+        # 尝试 wget 下载
+        wget -O "$output" "$url" >/dev/null 2>&1 &
+        dl_pid=$!
+        _dl_monitor "$output" "$total_size" "$progress_file" "$dl_pid" &
+        monitor_pid=$!
+        wait "$dl_pid"
+        local wget_exit=$?
+        wait "$monitor_pid" 2>/dev/null
+        if [ $wget_exit -ne 0 ]; then
+            download_failed=$((download_failed + 1))
+            echo "curl 和 wget 下载都失败,退出下载。" >&2
         fi
-    done
+    fi
+
     # 确保最终进度被写入
     if [ -f "$output" ]; then
-        local final_size=$(stat -f%z "$output" 2>/dev/null || stat -c%s "$output" 2>/dev/null)
+        local final_size
+        final_size=$(stat -f%z "$output" 2>/dev/null || stat -c%s "$output" 2>/dev/null)
+        local final_progress=0
         if [ "$total_size" -gt 0 ]; then
-            local final_progress=$((final_size * 100 / total_size))
-        else
-            local final_progress=0
+            final_progress=$((final_size * 100 / total_size))
         fi
         echo "$final_progress" >"$progress_file"
     fi
@@ -971,6 +954,15 @@ EOF
             fi
         done
         sysctl -p "$sysctl_conf" 2>/dev/null
+    else
+        # 配置文件不存在时直接创建并写入所有优化参数（无需备份原文件）
+        _yellow "sysctl 配置文件不存在，创建 $sysctl_conf 并写入优化参数"
+        touch "$sysctl_conf"
+        for variable in "${!sysctl_vars[@]}"; do
+            value="${sysctl_vars[$variable]}"
+            echo "$variable=$value" >>"$sysctl_conf"
+        done
+        sysctl -p "$sysctl_conf" 2>/dev/null
     fi
 }
 
@@ -1062,18 +1054,31 @@ check_china() {
     _yellow "IP area being detected ......"
     if [[ -z "${CN}" ]]; then
         if [[ $(curl -m 6 -s https://ipapi.co/json | grep 'China') != "" ]]; then
-            _yellow "根据ipapi.co提供的信息，当前IP可能在中国"
-            read -e -r -p "是否选用中国镜像完成相关组件安装? ([y]/n) " input
+            if [ "$en_status" = true ]; then
+                _yellow "According to ipapi.co, current IP may be in China"
+            else
+                _yellow "根据ipapi.co提供的信息，当前IP可能在中国"
+            fi
+            # 非交互（参数）模式下自动使用中国镜像，避免永久挂起等待输入
+            if [ "$menu_mode" = false ]; then
+                CN=true
+                return
+            fi
+            if [ "$en_status" = true ]; then
+                read -e -r -p "Use Chinese mirror to install components? ([y]/n) " input
+            else
+                read -e -r -p "是否选用中国镜像完成相关组件安装? ([y]/n) " input
+            fi
             case $input in
             [yY][eE][sS] | [yY])
-                echo "使用中国镜像"
+                if [ "$en_status" = true ]; then echo "Using Chinese mirror"; else echo "使用中国镜像"; fi
                 CN=true
                 ;;
             [nN][oO] | [nN])
-                echo "不使用中国镜像"
+                if [ "$en_status" = true ]; then echo "Not using Chinese mirror"; else echo "不使用中国镜像"; fi
                 ;;
             *)
-                echo "使用中国镜像"
+                if [ "$en_status" = true ]; then echo "Using Chinese mirror"; else echo "使用中国镜像"; fi
                 CN=true
                 ;;
             esac
@@ -1155,7 +1160,7 @@ get_system_bit() {
         SecurityCheck_FILE=securityCheck-linux-386
         PortChecker_FILE=portchecker-linux-386
         BACKTRACE_FILE=backtrace-linux-386
-        NEXTTRACE_FILE=nexttrace_darwin_amd64
+        NEXTTRACE_FILE=nexttrace_linux_386
         ;;
     "armv7l" | "armv8" | "armv8l" | "aarch64" | "arm64")
         LBench_Result_SystemBit_Short="arm"
@@ -1314,7 +1319,7 @@ function BenchAPI_Systeminfo_GetMemoryinfo() {
     local r_memtotal_gib && r_memtotal_gib="$(echo "$r_memtotal_kib" | awk '{printf "%.2f\n",$1/1048576}')"
     local r_meminfo_memfree_kib && r_meminfo_memfree_kib="$(awk '/MemFree/{print $2}' /proc/meminfo | head -n1)"
     local r_meminfo_buffers_kib && r_meminfo_buffers_kib="$(awk '/Buffers/{print $2}' /proc/meminfo | head -n1)"
-    local r_meminfo_cached_kib && r_meminfo_cached_kib="$(awk '/Cached/{print $2}' /proc/meminfo | head -n1)"
+    local r_meminfo_cached_kib && r_meminfo_cached_kib="$(awk '/^Cached:/{print $2}' /proc/meminfo | head -n1)"
     local r_memfree_kib && r_memfree_kib="$(echo "$r_meminfo_memfree_kib" "$r_meminfo_buffers_kib" "$r_meminfo_cached_kib" | awk '{printf $1+$2+$3}')"
     local r_memfree_mib && r_memfree_mib="$(echo "$r_memfree_kib" | awk '{printf "%.2f\n",$1/1024}')"
     local r_memfree_gib && r_memfree_gib="$(echo "$r_memfree_kib" | awk '{printf "%.2f\n",$1/1048576}')"
@@ -1374,7 +1379,7 @@ function BenchAPI_Systeminfo_GetDiskinfo() {
     local r_diskfree_tib && r_diskfree_tib="$(echo "$r_diskfree_kib" | awk '{printf "%.2f\n",$1/1073741824}')"
     # 数据加工
     Result_Systeminfo_DiskRootPath="$r_diskpath_root"
-    if [ "$r_diskused_kib" -lt "1048576" ]; then
+    if [ "$r_diskused_kib" -lt "1048576" ] && [ "$r_disktotal_kib" -lt "1048576" ]; then
         Result_Systeminfo_Diskinfo="$r_diskused_mib MiB / $r_disktotal_mib MiB"
     elif [ "$r_diskused_kib" -lt "1048576" ] && [ "$r_disktotal_kib" -lt "1073741824" ]; then
         Result_Systeminfo_Diskinfo="$r_diskused_mib MiB / $r_disktotal_gib GiB"
@@ -1569,8 +1574,10 @@ function BenchAPI_Systeminfo_GetOSReleaseinfo() {
             return 0
             ;;
         *)
-            echo -e "${Msg_Error} BenchAPI_Systeminfo_GetOSReleaseinfo(): invalid result (CentOS/Redhat-$r_prettyname ($r_arch)), please check parameter!"
-            exit 1
+            echo -e "${Msg_Error} BenchAPI_Systeminfo_GetOSReleaseinfo(): unknown CentOS/Redhat version ($r_prettyname), using fallback"
+            Result_Systeminfo_OSReleaseVersionShort="unknown"
+            Result_Systeminfo_OSReleaseNameFull="$r_prettyname ($r_arch)"
+            return 0
             ;;
         esac
     elif [ -f "/etc/lsb-release" ]; then # Ubuntu

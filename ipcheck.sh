@@ -5,8 +5,9 @@
 
 cd /root >/dev/null 2>&1
 myvar=$(pwd)
-ver="2025.02.12"
+ver="2026.02.28"
 changeLog="IP质量测试，由频道 https://t.me/+UHVoo2U4VyA5NTQ1 原创"
+en_status=false
 temp_file_apt_fix="/tmp/apt_fix.txt"
 shorturl=""
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "alpine")
