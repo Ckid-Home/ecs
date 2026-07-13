@@ -2,7 +2,7 @@
 #by spiritlhl
 #from https://github.com/spiritLHLS/ecs
 
-ver="2026.05.08"
+ver="2026.07.13"
 changeLog="IP质量测试，由频道 https://t.me/+UHVoo2U4VyA5NTQ1 原创"
 
 red() {
@@ -16,7 +16,7 @@ green() {
 yellow() {
     echo -e "\033[33m\033[01m$1\033[0m"
 }
-reading() { read -rp "$(green "$1")" "$2"; }
+reading() { read -rp "$(_green "$1")" "$2"; }
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Alpine")
 PACKAGE_UPDATE=("apt -y update" "apt -y update" "yum -y update" "yum -y update" "apk update -f")
@@ -43,31 +43,21 @@ done
 
 trap _exit INT QUIT TERM
 
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
 
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
 
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
 
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 
 _exists() {
     local cmd="$1"
-    if eval type type >/dev/null 2>&1; then
-        eval type "$cmd" >/dev/null 2>&1
-    elif command >/dev/null 2>&1; then
-        command -v "$cmd" >/dev/null 2>&1
-    else
-        which "$cmd" >/dev/null 2>&1
-    fi
-    local rt=$?
-    return ${rt}
+    type -t -- "$cmd" >/dev/null 2>&1
 }
 
 _exit() {
     _red "\n检测到退出操作，脚本终止！\n"
-    # clean up
-    rm -fr benchtest_*
     exit 1
 }
 
@@ -77,7 +67,7 @@ checkroot() {
 
 checkupdate() {
     echo "正在更新包管理源"
-    if [ "${release}" == "centos" ]; then
+    if [ "${SYSTEM}" == "CentOS" ]; then
         yum update >/dev/null 2>&1
         yum install dos2unix -y
     else
@@ -90,7 +80,7 @@ checkupdate() {
 checkdnsutils() {
     if ! command -v dig >/dev/null 2>&1 && ! command -v nslookup >/dev/null 2>&1; then
         echo "正在安装 dnsutils"
-        if [ "${release}" == "centos" ]; then
+        if [ "${SYSTEM}" == "CentOS" ]; then
             # 	                    yum update > /dev/null 2>&1
             yum -y install dnsutils >/dev/null 2>&1
         else
@@ -104,7 +94,7 @@ checkdnsutils() {
 checkcurl() {
     if [ ! -e '/usr/bin/curl' ]; then
         echo "正在安装 Curl"
-        if [ "${release}" == "centos" ]; then
+        if [ "${SYSTEM}" == "CentOS" ]; then
             # 	                yum update > /dev/null 2>&1
             yum -y install curl >/dev/null 2>&1
         else
@@ -117,7 +107,7 @@ checkcurl() {
 checkwget() {
     if [ ! -e '/usr/bin/wget' ]; then
         echo "正在安装 Wget"
-        if [ "${release}" == "centos" ]; then
+        if [ "${SYSTEM}" == "CentOS" ]; then
             # 	                yum update > /dev/null 2>&1
             yum -y install wget >/dev/null 2>&1
         else
@@ -157,13 +147,17 @@ translate_status() {
     fi
 }
 
+sanitize_text() {
+    printf '%s' "$1" | LC_ALL=C tr -d '\000-\037\177'
+}
+
 scamalytics() {
     ip="$1"
     context=$(curl -sL -H "$head" -m 10 "https://scamalytics.com/ip/$ip")
     if [[ "$?" -ne 0 ]]; then
         return
     fi
-    temp1=$(echo "$context" | grep -oP '(?<=>Fraud Score: )[^<]+')
+    temp1=$(sanitize_text "$(echo "$context" | grep -oP '(?<=>Fraud Score: )[^<]+')")
     if [ -n "$temp1" ]; then
         echo "scamalytics数据库:"
         echo "  欺诈分数(越低越好)：$temp1"
@@ -185,7 +179,8 @@ scamalytics() {
     if ! [ "$status_t2" -eq 1 ]; then
         while read -r temp3; do
             if [[ -n "$temp3" ]]; then
-                echo "  ${nlist[$i]}: ${temp3#*>}"
+                temp3=$(sanitize_text "${temp3#*>}")
+                echo "  ${nlist[$i]}: $temp3"
                 i=$((i + 1))
             fi
         done <<<"$(echo "$temp2" | sed 's/<[^>]*>//g' | sed 's/^[[:blank:]]*//g')"
@@ -225,10 +220,10 @@ abuse() {
     ip="$1"
     context2=$(curl -sL -H "$head" -m 10 "https://api.abuseipdb.com/api/v2/check?ipAddress=${ip}")
     if [[ "$context2" == *"abuseConfidenceScore"* ]]; then
-        score=$(echo "$context2" | grep -o '"abuseConfidenceScore":[^,}]*' | sed 's/.*://')
+        score=$(sanitize_text "$(echo "$context2" | grep -o '"abuseConfidenceScore":[^,}]*' | sed 's/.*://')")
         echo "abuseipdb数据库-abuse得分：$score"
         echo "IP类型:"
-        usageType=$(grep -oP '"usageType":\s*"\K[^"]+' <<<"$context2" | sed 's/\\\//\//g')
+        usageType=$(sanitize_text "$(grep -oP '"usageType":\s*"\K[^"]+' <<<"$context2" | sed 's/\\\//\//g')")
         if [ -z "$usageType" ]; then
             usageType="Unknown (Maybe Fixed Line ISP)"
         fi
@@ -255,12 +250,12 @@ ipapi() {
 
 ip234() {
     local ip="$1"
-    context5=$(curl -sL -m 10 "http://ip234.in/fraud_check?ip=$ip")
+    context5=$(curl -sL --proto '=https' --proto-redir '=https' -m 10 "https://ip234.in/fraud_check?ip=$ip")
     if [[ "$?" -ne 0 ]]; then
         return
     fi
     risk=$(grep -oP '(?<="score":)[^,}]+' <<<"$context5")
-    if [[ -n "$risk" ]]; then
+    if [[ "$risk" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
         echo "ip234数据库："
         echo "  欺诈分数(越低越好)：$risk"
     else
@@ -279,11 +274,11 @@ google() {
 
 main() {
     reading "\n 请输入需要查询的 IP: " ip4
-    yellow "\n 检测中，请稍等片刻。\n"
+    _yellow "\n 检测中，请稍等片刻。\n"
     echo "----------------欺诈分数以及IP质量检测--本频道独创----------------"
     echo "                   测评频道: https://t.me/+UHVoo2U4VyA5NTQ1                    "
     next
-    yellow "数据仅作参考，不代表100%准确，IP类型如果不一致请手动查询多个数据库比对"
+    _yellow "数据仅作参考，不代表100%准确，IP类型如果不一致请手动查询多个数据库比对"
     scamalytics "$ip4"
     virustotal "$ip4"
     ip234 "$ip4"
@@ -303,4 +298,3 @@ start_time=$(date +%s)
 main
 print_end_time
 next
-rm -rf wget-log*

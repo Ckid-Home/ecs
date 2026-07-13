@@ -19,26 +19,30 @@ check_smart_info() {
     if echo "$smart_info" | grep -q "$1"; then
         value=$(echo "$smart_info" | grep "$1" | awk '{print $10}')
         type=$(echo "$smart_info" | grep "$1" | awk '{print $7}')
-        type=$(translate_type $type)
+        type=$(translate_type "$type")
         echo "[$type] $2: $value"
     fi
 }
 # 检测所有硬盘
 disk_list=""
-if ls -d /dev/sd* >/dev/null 2>&1; then
-    disk_list="$disk_list $(ls /dev/sd*)"
-fi
-if ls -d /dev/nvme* >/dev/null 2>&1; then
-    disk_list="$disk_list $(ls /dev/nvme*)"
-fi
-if ls -d /dev/hd* >/dev/null 2>&1; then
-    disk_list="$disk_list $(ls /dev/hd*)"
-fi
-if ls -d /dev/vd* >/dev/null 2>&1; then
-    disk_list="$disk_list $(ls /dev/vd*)"
-fi
-if ls -d /dev/mmcblk* >/dev/null 2>&1; then
-    disk_list="$disk_list $(ls /dev/mmcblk*)"
+if command -v lsblk >/dev/null 2>&1; then
+    disk_list=$(lsblk -d -p -n -o NAME,TYPE 2>/dev/null | awk '$2 == "disk" { print $1 }')
+else
+    if ls -d /dev/sd* >/dev/null 2>&1; then
+        disk_list="$disk_list $(ls -d /dev/sd*)"
+    fi
+    if ls -d /dev/nvme* >/dev/null 2>&1; then
+        disk_list="$disk_list $(ls -d /dev/nvme*)"
+    fi
+    if ls -d /dev/hd* >/dev/null 2>&1; then
+        disk_list="$disk_list $(ls -d /dev/hd*)"
+    fi
+    if ls -d /dev/vd* >/dev/null 2>&1; then
+        disk_list="$disk_list $(ls -d /dev/vd*)"
+    fi
+    if ls -d /dev/mmcblk* >/dev/null 2>&1; then
+        disk_list="$disk_list $(ls -d /dev/mmcblk*)"
+    fi
 fi
 # if ls -d /dev/vd* > /dev/null 2>&1; then
 #     disk_list="$disk_list $(ls /dev/vd*)"
@@ -67,14 +71,14 @@ echo "当然是正常还是老化只是参考，一切基于smartctl的判断结
 next
 # echo $disk_list
 for disk_dev in $disk_list; do
-    smart_info=$(smartctl -i $disk_dev)
+    smart_info=$(smartctl -i "$disk_dev")
     vendor=$(echo "$smart_info" | grep "Vendor" | awk '{print $2}')
     if [[ -z "$vendor" ]]; then
         vendor="UNKNOWN"
     fi
     echo "盘路径: $disk_dev"
     echo "供应商: $vendor"
-    smart_info=$(smartctl -a $disk_dev)
+    smart_info=$(smartctl -a "$disk_dev")
     check_smart_info "Power_On_Hours" "通电时长(越低越好)"
     check_smart_info "Power_Cycle_Count" "电源开关次数(越少越好)"
     check_smart_info "Spin_Up_Time" "启动时间(越短越好)"

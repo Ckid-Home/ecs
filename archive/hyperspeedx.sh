@@ -6,6 +6,10 @@ YELLOW='\033[0;33m'
 PURPLE="\033[0;35m"
 CYAN='\033[0;36m'
 ENDC='\033[0m'
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/hyperspeed.XXXXXX") || exit 1
+BIMC="$TEMP_DIR/bimc"
+cleanup_temp_dir() { rm -rf -- "$TEMP_DIR"; }
+trap cleanup_temp_dir EXIT
 
 check_wget() {
     if [ ! -e '/usr/bin/wget' ]; then
@@ -14,14 +18,18 @@ check_wget() {
 }
 
 check_bimc() {
-    if [ ! -e './bimc' ]; then
+    if [ ! -e "$BIMC" ]; then
         echo "正在获取组件"
         arch=$(uname -m)
         if [ "${arch}" == "i686" ]; then
             arch="i586"
         fi
-        wget --no-check-certificate -qO bimc https://bench.im/bimc >/dev/null 2>&1
-        chmod +x bimc
+        if ! wget -qO "$BIMC.download" https://bench.im/bimc >/dev/null 2>&1; then
+            rm -f "$BIMC.download"
+            return 1
+        fi
+        mv "$BIMC.download" "$BIMC"
+        chmod 700 "$BIMC"
     fi
 }
 
@@ -62,11 +70,15 @@ speed_test() {
     local nodeISP=$3
     local extra=$4
     local server=$(echo "$5" | base64 -d)
-    local name=$(./bimc "$nodeLocation" -n)
+    local name=$("$BIMC" "$nodeLocation" -n)
 
     printf "\r${GREEN}%-7s${YELLOW}%s%s${GREEN}%s${CYAN}%s%-11s${CYAN}%s%-11s${GREEN}%-9s${PURPLE}%-7s${ENDC}" "${nodeType}" "${nodeISP}" "|" "${name}" "↑ " "..." "↓ " "..." "..." "..."
 
-    output=$(./bimc $server $ul$thread $extra)
+    local bimc_args=("$server")
+    [[ -n "${ul:-}" ]] && bimc_args+=("$ul")
+    [[ -n "$thread" ]] && bimc_args+=("-m")
+    [[ -n "$extra" ]] && bimc_args+=("$extra")
+    output=$("$BIMC" "${bimc_args[@]}")
     local upload="$(echo "$output" | cut -n -d ',' -f1)"
     local download="$(echo "$output" | cut -n -d ',' -f2)"
     local latency="$(echo "$output" | cut -n -d ',' -f3)"
@@ -287,12 +299,12 @@ run_test() {
 
 run_all() {
     check_wget
-    check_bimc
+    check_bimc || exit 1
     clear
     print_info
     get_options
     run_test
-    rm -rf bimc
+    cleanup_temp_dir
 }
 
 LANG=C

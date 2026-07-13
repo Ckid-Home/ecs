@@ -5,6 +5,10 @@
 # 2024.07.06
 
 myvar=$(pwd)
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/multi-disk.XXXXXX") || exit 1
+YABS_SCRIPT="$TEMP_DIR/yabs.sh"
+cleanup_temp_dir() { rm -rf -- "$TEMP_DIR"; }
+trap cleanup_temp_dir EXIT
 export DEBIAN_FRONTEND=noninteractive
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "fedora" "arch")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Fedora" "Arch")
@@ -44,7 +48,7 @@ fi
 check_cdn() {
   local o_url=$1
   for cdn_url in "${cdn_urls[@]}"; do
-    if curl -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
+    if curl -sL --proto '=https' --proto-redir '=https' "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
       export cdn_success_url="$cdn_url"
       return
     fi
@@ -62,18 +66,23 @@ check_cdn_file() {
   fi
 }
 
-cdn_urls=("https://cdn0.spiritlhl.top/" "http://cdn3.spiritlhl.net/" "http://cdn1.spiritlhl.net/" "https://ghproxy.com/" "http://cdn2.spiritlhl.net/")
+cdn_urls=("https://cdn0.spiritlhl.top/" "https://cdn.spiritlhl.net/")
 check_cdn_file
 
-# 当前路径下下载测试脚本
-rm -rf yabs.sh >/dev/null 2>&1
-curl -sL -k "${cdn_success_url}https://raw.githubusercontent.com/masonr/yet-another-bench-script/master/yabs.sh" -o yabs.sh && chmod +x yabs.sh
-sed -i '/# gather basic system information (inc. CPU, AES-NI\/virt status, RAM + swap + disk size)/,/^echo -e "IPv4\/IPv6  : $ONLINE"/d' yabs.sh
+# 下载测试脚本
+if ! curl --fail -sL --proto '=https' --proto-redir '=https' "${cdn_success_url}https://raw.githubusercontent.com/masonr/yet-another-bench-script/master/yabs.sh" -o "$YABS_SCRIPT.download"; then
+  rm -f "$YABS_SCRIPT.download"
+  exit 1
+fi
+mv "$YABS_SCRIPT.download" "$YABS_SCRIPT"
+chmod 700 "$YABS_SCRIPT"
+sed -i '/# gather basic system information (inc. CPU, AES-NI\/virt status, RAM + swap + disk size)/,/^echo -e "IPv4\/IPv6  : $ONLINE"/d' "$YABS_SCRIPT"
+bash -n "$YABS_SCRIPT" || exit 1
 echo -e "---------------------------------"
 echo "Current disk: system disk"
 echo "Current path: /root"
 echo -en "\rRunning fio test..."
-output=$(./yabs.sh -s -- -i -n -g 2>&1 | tail -n +9)
+output=$("$YABS_SCRIPT" -s -- -i -n -g 2>&1 | tail -n +9)
 if [[ $output =~ "Block Size" ]]; then
     output=$(echo "$output" | grep -v 'curl' | sed '$d' | sed '$d' | sed '1,2d')
     echo -en "\r"
@@ -83,50 +92,51 @@ else
     echo "Test failed please replace with another"
 fi
 
-# 获取非以vda开头的盘名称
-disk_names=$(lsblk -e 11 -n -o NAME | grep -v "vda" | grep -v "snap" | grep -v "loop")
+# 获取非系统盘的顶层块设备名称
+root_source=$(findmnt -n -o SOURCE / 2>/dev/null)
+root_disk=$(lsblk -s -r -n -o NAME,TYPE "$root_source" 2>/dev/null | awk '$2 == "disk" { print $1; exit }')
+disk_names=$(lsblk -e 11 -d -n -o NAME,TYPE | awk -v root_disk="$root_disk" '$2 == "disk" && $1 != root_disk { print $1 }')
 if [ -z "$disk_names" ]; then
   echo "No eligible disk names found. Exiting script."
-  exit 1
+  cleanup_temp_dir
+  exit 0
 fi
 
 # 存储盘名称和盘路径的数组
-declare -a disk_paths
+declare -a disk_device_names disk_paths
 
 # 遍历每个盘名称并检索对应的盘路径，并将名称和路径存储到数组中
 for disk_name in $disk_names; do
-  disk_path=$(df -h | awk -v disk_name="$disk_name" '$0 ~ disk_name { print $NF }')
+  disk_path=$(lsblk -r -n -o MOUNTPOINT "/dev/$disk_name" 2>/dev/null | sed -n '/[^[:space:]]/ { p; q; }')
   if [ -n "$disk_path" ]; then
-    disk_paths+=("$disk_name:$disk_path")
+    disk_device_names+=("$disk_name")
+    disk_paths+=("$disk_path")
   fi
 done
 
 # 提示用户输入自定义路径
-read -p "Enter custom path (leave empty to use detected paths): " custom_path
+read -r -p "Enter custom path (leave empty to use detected paths): " custom_path
 
 # 遍历数组，打开对应盘路径并检测IO
 if [ ${#disk_paths[@]} -gt 0 ]; then
-  for disk_path in "${disk_paths[@]}"; do
-    disk_name=$(echo "$disk_path" | cut -d ":" -f 1)
-    path=$(echo "$disk_path" | cut -d ":" -f 2)
+  for ((disk_index = 0; disk_index < ${#disk_paths[@]}; disk_index++)); do
+    disk_name="${disk_device_names[disk_index]}"
+    path="${disk_paths[disk_index]}"
     
     if [ -n "$custom_path" ]; then
       path="$custom_path"
     fi
 
     if [ -n "$path" ]; then
-      cd "$path" >/dev/null 2>&1
+      cd -- "$path" >/dev/null 2>&1
       if [ $? -ne 0 ]; then
         continue
       fi
       echo -e "---------------------------------"
       echo "Current disk: ${disk_name}"
       echo "Current path: ${path}"
-      if [ ! -f "yabs.sh" ]; then
-        cp ${myvar}/yabs.sh ./
-      fi
       echo -en "\rRunning fio test..."
-      output=$(./yabs.sh -s -- -i -n -g 2>&1 | tail -n +9)
+      output=$("$YABS_SCRIPT" -s -- -i -n -g 2>&1 | tail -n +9)
       if [[ $output =~ "Block Size" ]]; then
           output=$(echo "$output" | grep -v 'curl' | sed '$d' | sed '$d' | sed '1,2d')
           echo -en "\r"
@@ -136,10 +146,10 @@ if [ ${#disk_paths[@]} -gt 0 ]; then
           echo "Test failed please replace with another"
       fi
     fi
-    cd $myvar >/dev/null 2>&1
+    cd -- "$myvar" >/dev/null 2>&1
   done
   echo -e "---------------------------------"
 else
   echo "No extra disk"
 fi
-rm -rf yabs.sh
+cleanup_temp_dir

@@ -5,17 +5,28 @@
 
 cd /root >/dev/null 2>&1
 myvar=$(pwd)
-ver="2026.02.28"
+TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ipcheck.XXXXXX") || exit 1
+SECURITY_CHECK_BIN="${TEMP_DIR}/securityCheck"
+PORT_CHECKER_BIN="${TEMP_DIR}/pck"
+IP_QUALITY_GOOGLE_FILE="${TEMP_DIR}/ip_quality_google"
+IP_QUALITY_SECURITY_FILE="${TEMP_DIR}/ip_quality_security_check"
+IP_QUALITY_EMAIL_FILE="${TEMP_DIR}/ip_quality_email_check"
+cleanup_temp_dir() {
+    if [ -n "${TEMP_DIR:-}" ] && [ -d "$TEMP_DIR" ]; then
+        rm -rf -- "$TEMP_DIR"
+    fi
+}
+trap cleanup_temp_dir EXIT
+ver="2026.07.13"
 changeLog="IP质量测试，由频道 https://t.me/+UHVoo2U4VyA5NTQ1 原创"
 en_status=false
-temp_file_apt_fix="/tmp/apt_fix.txt"
 shorturl=""
 REGEX=("debian" "ubuntu" "centos|red hat|kernel|oracle linux|alma|rocky" "'amazon linux'" "alpine")
 RELEASE=("Debian" "Ubuntu" "CentOS" "CentOS" "Alpine")
 PACKAGE_UPDATE=("apt -y update" "apt -y update" "yum -y update" "yum -y update" "apk update -f")
 PACKAGE_INSTALL=("apt -y install" "apt -y install" "yum -y install" "yum -y install" "apk add -f")
 CMD=("$(grep -i pretty_name /etc/os-release 2>/dev/null | cut -d \" -f2)" "$(hostnamectl 2>/dev/null | grep -i system | cut -d : -f2)" "$(lsb_release -sd 2>/dev/null)" "$(grep -i description /etc/lsb-release 2>/dev/null | cut -d \" -f2)" "$(grep . /etc/redhat-release 2>/dev/null)" "$(grep . /etc/issue 2>/dev/null | cut -d \\ -f1 | sed '/^[ ]*$/d')")
-rm -rf sc_result.txt
+rm -f -- sc_result.txt
 
 # 安全的清屏函数
 clear_screen() {
@@ -47,13 +58,12 @@ RED="\033[31m"
 GREEN="\033[32m"
 YELLOW="\033[33m"
 PLAIN="\033[0m"
-_red() { echo -e "\033[31m\033[01m$@\033[0m"; }
-_green() { echo -e "\033[32m\033[01m$@\033[0m"; }
-_yellow() { echo -e "\033[33m\033[01m$@\033[0m"; }
-_blue() { echo -e "\033[36m\033[01m$@\033[0m"; }
+_red() { echo -e "\033[31m\033[01m$*\033[0m"; }
+_green() { echo -e "\033[32m\033[01m$*\033[0m"; }
+_yellow() { echo -e "\033[33m\033[01m$*\033[0m"; }
+_blue() { echo -e "\033[36m\033[01m$*\033[0m"; }
 reading() { read -rp "$(_green "$1")" "$2"; }
 
-rm -rf securityCheck
 os=$(uname -s)
 arch=$(uname -m)
 
@@ -85,10 +95,10 @@ format_output() {
 }
 
 build_text() {
-    cd $myvar >/dev/null 2>&1
+    cd "$myvar" >/dev/null 2>&1
     if [ -f "sc_result.txt" ]; then
         format_output "sc_result.txt"
-        awk '/-------------------- A Bench Script By spiritlhl ---------------------/{flag=1} flag; /^$/{flag=0}' sc_result.txt >temp.txt && mv temp.txt sc_result.txt
+        awk '/A Bench Script By spiritlhl/{flag=1} flag; /^$/{flag=0}' sc_result.txt >"$TEMP_DIR/sc_result.tmp" && mv "$TEMP_DIR/sc_result.tmp" sc_result.txt
         sed -i -e 's/\x1B\[[0-9;]\+[a-zA-Z]//g' sc_result.txt
         sed -i -e '/^$/d' sc_result.txt
         sed -i 's/\r//' sc_result.txt
@@ -106,7 +116,7 @@ build_text() {
             http_short_url=$(curl --ipv4 -sL -m 10 -X POST \
                 -H "Authorization: $ST" \
                 -F "file=@${myvar}/sc_result.txt" \
-                "http://hpaste.spiritlhl.net/api/UL/upload")
+                "https://paste.spiritlhl.net/api/UL/upload")
             if [ $? -eq 0 ] && [ -n "$http_short_url" ] && echo "$http_short_url" | grep -q "show"; then
                 file_id=$(echo "$http_short_url" | grep -o '[^/]*$')
                 shorturl="https://paste.spiritlhl.net/#/show/${file_id}"
@@ -129,7 +139,7 @@ build_text() {
 check_cdn() {
     local o_url=$1
     for cdn_url in "${cdn_urls[@]}"; do
-        if curl -sL -k "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
+        if curl -sL --proto '=https' --proto-redir '=https' "$cdn_url$o_url" --max-time 6 | grep -q "success" >/dev/null 2>&1; then
             export cdn_success_url="$cdn_url"
             return
         fi
@@ -149,72 +159,36 @@ check_cdn_file() {
 }
 
 pre_download() {
+    local platform
+    local machine
     case $os in
-    Linux)
-        case $arch in
-        "x86_64" | "x86" | "amd64" | "x64")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-linux-amd64"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-linux-amd64"
-            ;;
-        "i386" | "i686")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-linux-386"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-linux-386"
-            ;;
-        "armv7l" | "armv8" | "armv8l" | "aarch64")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-linux-arm64"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-linux-arm64"
-            ;;
-        *)
-            echo "Unsupported architecture: $arch"
-            exit 1
-            ;;
-        esac
-        ;;
-    Darwin)
-        case $arch in
-        "x86_64" | "x86" | "amd64" | "x64")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-darwin-amd64"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-darwin-amd64"
-            ;;
-        "i386" | "i686")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-darwin-386"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-darwin-386"
-            ;;
-        "armv7l" | "armv8" | "armv8l" | "aarch64")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-darwin-arm64"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-darwin-arm64"
-            ;;
-        *)
-            echo "Unsupported architecture: $arch"
-            exit 1
-            ;;
-        esac
-        ;;
-    FreeBSD)
-        case $arch in
-        amd64)
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-freebsd-amd64"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-freebsd-amd64"
-            ;;
-        "i386" | "i686")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-freebsd-386"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-freebsd-386"
-            ;;
-        "armv7l" | "armv8" | "armv8l" | "aarch64")
-            wget -O securityCheck "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-freebsd-arm64"
-            wget -O pck "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-freebsd-arm64"
-            ;;
-        *)
-            echo "Unsupported architecture: $arch"
-            exit 1
-            ;;
-        esac
-        ;;
+    Linux) platform="linux" ;;
+    Darwin) platform="darwin" ;;
+    FreeBSD) platform="freebsd" ;;
     *)
         echo "Unsupported operating system: $os"
         exit 1
         ;;
     esac
+    case $arch in
+    "x86_64" | "x86" | "amd64" | "x64") machine="amd64" ;;
+    "i386" | "i686") machine="386" ;;
+    "armv7l" | "armv8" | "armv8l" | "aarch64") machine="arm64" ;;
+    *)
+        echo "Unsupported architecture: $arch"
+        exit 1
+        ;;
+    esac
+    if ! curl --fail --location --proto '=https' --proto-redir '=https' -o "$SECURITY_CHECK_BIN.download" "${cdn_success_url}https://github.com/oneclickvirt/securityCheck/releases/download/output/securityCheck-${platform}-${machine}"; then
+        rm -f "$SECURITY_CHECK_BIN.download"
+        return 1
+    fi
+    mv "$SECURITY_CHECK_BIN.download" "$SECURITY_CHECK_BIN"
+    if ! curl --fail --location --proto '=https' --proto-redir '=https' -o "$PORT_CHECKER_BIN.download" "${cdn_success_url}https://github.com/oneclickvirt/portchecker/releases/download/output/portchecker-${platform}-${machine}"; then
+        rm -f "$PORT_CHECKER_BIN.download"
+        return 1
+    fi
+    mv "$PORT_CHECKER_BIN.download" "$PORT_CHECKER_BIN"
 }
 
 translate_status() {
@@ -229,36 +203,36 @@ translate_status() {
 
 google() {
     local curl_result=$(curl -sL -m 10 "https://www.google.com/search?q=www.spiritysdx.top" -H "User-Agent: Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:54.0) Gecko/20100101 Firefox/54.0")
-    rm -rf /tmp/ip_quality_google
+    rm -f "$IP_QUALITY_GOOGLE_FILE"
     if [ "$en_status" = true ]; then
         if echo "$curl_result" | grep -q "二叉树的博客"; then
-            echo "Google search feasibility: YES" >>/tmp/ip_quality_google
+            echo "Google search feasibility: YES" >>"$IP_QUALITY_GOOGLE_FILE"
         else
-            echo "Google search feasibility: NO" >>/tmp/ip_quality_google
+            echo "Google search feasibility: NO" >>"$IP_QUALITY_GOOGLE_FILE"
         fi
     else
         if echo "$curl_result" | grep -q "二叉树的博客"; then
-            echo "Google搜索可行性：YES" >>/tmp/ip_quality_google
+            echo "Google搜索可行性：YES" >>"$IP_QUALITY_GOOGLE_FILE"
         else
-            echo "Google搜索可行性：NO" >>/tmp/ip_quality_google
+            echo "Google搜索可行性：NO" >>"$IP_QUALITY_GOOGLE_FILE"
         fi
     fi
 }
 
 security_check() {
     local language=$1
-    cd $myvar >/dev/null 2>&1
-    if [ -f "securityCheck" ]; then
-        chmod 777 securityCheck
-        ./securityCheck -l $language -e yes | sed '1d' >>/tmp/ip_quality_security_check
+    cd "$myvar" >/dev/null 2>&1
+    if [ -f "$SECURITY_CHECK_BIN" ]; then
+        chmod 700 "$SECURITY_CHECK_BIN"
+        "$SECURITY_CHECK_BIN" -l "$language" -e yes | sed '1d' >>"$IP_QUALITY_SECURITY_FILE"
     fi
 }
 
 email_check() {
-    cd $myvar >/dev/null 2>&1
-    if [ -f "pck" ]; then
-        chmod 777 pck
-        ./pck | sed '1d' >>/tmp/ip_quality_email_check
+    cd "$myvar" >/dev/null 2>&1
+    if [ -f "$PORT_CHECKER_BIN" ]; then
+        chmod 700 "$PORT_CHECKER_BIN"
+        "$PORT_CHECKER_BIN" | sed '1d' >>"$IP_QUALITY_EMAIL_FILE"
     fi
 }
 
@@ -288,7 +262,7 @@ ipcheck() {
     {
         google
         if [[ $? -ne 0 ]]; then
-            echo "Google检测执行失败" >>/tmp/ip_quality_google
+            echo "Google检测执行失败" >>"$IP_QUALITY_GOOGLE_FILE"
         fi
     } &
 
@@ -296,14 +270,14 @@ ipcheck() {
         {
             security_check "en"
             if [[ $? -ne 0 ]]; then
-                echo "Security check failed" >>/tmp/ip_quality_security_check
+                echo "Security check failed" >>"$IP_QUALITY_SECURITY_FILE"
             fi
         } &
     else
         {
             security_check "zh"
             if [[ $? -ne 0 ]]; then
-                echo "安全检查执行失败" >>/tmp/ip_quality_security_check
+                echo "安全检查执行失败" >>"$IP_QUALITY_SECURITY_FILE"
             fi
         } &
     fi
@@ -311,7 +285,7 @@ ipcheck() {
     {
         email_check
         if [[ $? -ne 0 ]]; then
-            echo "邮件端口检测执行失败" >>/tmp/ip_quality_email_check
+            echo "邮件端口检测执行失败" >>"$IP_QUALITY_EMAIL_FILE"
         fi
     } &
 
@@ -321,13 +295,13 @@ ipcheck() {
     # 检查并显示结果
     local has_output=false
 
-    if [ -f "/tmp/ip_quality_security_check" ]; then
-        check_and_cat_file "/tmp/ip_quality_security_check"
+    if [ -f "$IP_QUALITY_SECURITY_FILE" ]; then
+        check_and_cat_file "$IP_QUALITY_SECURITY_FILE"
         has_output=true
     fi
 
-    if [ -f "/tmp/ip_quality_google" ]; then
-        check_and_cat_file "/tmp/ip_quality_google"
+    if [ -f "$IP_QUALITY_GOOGLE_FILE" ]; then
+        check_and_cat_file "$IP_QUALITY_GOOGLE_FILE"
         has_output=true
     fi
 
@@ -337,8 +311,8 @@ ipcheck() {
         echo -e "----------邮件端口检测--基于oneclickvirt/portchecker开源----------"
     fi
 
-    if [ -f "/tmp/ip_quality_email_check" ]; then
-        check_and_cat_file "/tmp/ip_quality_email_check"
+    if [ -f "$IP_QUALITY_EMAIL_FILE" ]; then
+        check_and_cat_file "$IP_QUALITY_EMAIL_FILE"
         has_output=true
     fi
 
@@ -348,14 +322,14 @@ ipcheck() {
     fi
 
     # 清理临时文件
-    rm -rf /tmp/ip_quality_*
+    rm -f "$IP_QUALITY_SECURITY_FILE" "$IP_QUALITY_GOOGLE_FILE" "$IP_QUALITY_EMAIL_FILE"
 }
 
 main() {
-    cdn_urls=("http://cdn1.spiritlhl.net/" "http://cdn2.spiritlhl.net/" "http://cdn3.spiritlhl.net/" "http://cdn4.spiritlhl.net/")
+    cdn_urls=("https://cdn0.spiritlhl.top/" "https://cdn.spiritlhl.net/")
     check_cdn_file
-    pre_download
-    chmod 777 securityCheck 2>/dev/null
+    pre_download || exit 1
+    chmod 700 "$SECURITY_CHECK_BIN" 2>/dev/null
     # 清屏
     clear_screen
     start_time=$(date +%s)
@@ -363,7 +337,7 @@ main() {
     _yellow "数据仅作参考，不代表100%准确，IP类型如果不一致请手动查询多个数据库比对"
     echo -e "----------IP质量检测--基于oneclickvirt/securityCheck使用----------"
     # 执行检测并保存到临时文件
-    temp_output=$(mktemp)
+    temp_output=$(mktemp "$TEMP_DIR/output.XXXXXX")
     ipcheck | tee "$temp_output"
     # 检查输出
     if [ ! -s "$temp_output" ]; then
@@ -384,5 +358,4 @@ if [ -n "$shorturl" ]; then
     _green "  短链:"
     _blue "    $shorturl"
 fi
-rm -rf wget-log*
-rm -rf securityCheck*
+cleanup_temp_dir

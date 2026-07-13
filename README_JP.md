@@ -30,7 +30,26 @@
 | **サポートアーキテクチャ** | amd64 (x86_64)、arm64、i386、arm |
 | **サポート地域** | インターネットに接続できる環境であれば対応可能だが、公衆回線環境がないとテストできない |
 
+## スポンサー
+
+> [スポンサーになりたいですか？](https://github.com/spiritLHLS/ecs/issues)
+
+<i style="color: gray; font-size: small;">※ スポンサーは本リポジトリプロジェクトのみをスポンサーしており、本プロジェクト外の Go バージョンプロジェクトとは関係ありません。</i>
+
+<details open>
+<summary>クリックで折りたたむ</summary>
+
+<table>
+<tr>
+<td width="180"><a href="https://www.ipwo.net/?ref=githubspiritLHLS" target="_blank"><img src="https://www.ipwo.net/static/cn/images/index/black_banner_icon.webp" alt="IPWO" width="150"></a></td>
+<td><b>IPWO 住宅プロキシ</b> — 実際のユーザーアクセス環境をシミュレートし、IP地理位置情報の検証や地域アクセステストを支援する信頼性の高い住宅プロキシネットワーク。http/https/socks5マルチプロトコル対応。<br><a href="https://www.ipwo.net/?ref=githubspiritLHLS" target="_blank"><u>テストアクセス入口</u></a> ｜ 割引コード：<b>LHLS</b></td>
+</tr>
+</table>
+
+</details>
+
 # メニュー
+- [スポンサー](#スポンサー)
 - [前書き](#前書き)
 - [メニュー](#メニュー)
 - [VPS_Fusion_Monster_Server_Test_Script](#VPS_Fusion_Monster_Server_Test_Script)
@@ -43,6 +62,7 @@
 - [フレンドリーリンク](#フレンドリーリンク)
   - [レビュー_チャンネル](#レビュー_チャンネル)
 - [感謝](#感謝)
+- [スクリーンショット](#スクリーンショット)
 - [History Usage](#History-Usage)
 - [Stargazers_over_time](#Stargazers_over_time)
 
@@ -100,6 +120,9 @@ bash ecs.sh -en -m 1
 
 以下はパラメータの説明です：
 
+<details>
+<summary>クリックして展開</summary>
+
 | コマンド | 項目 | 説明 | 備考 |
 | ---- | ---- | ----------- | ---- |
 | -m | 必須 | 元のメニューの対応するオプションを指定します。最大3レベルの選択をサポートします。例：```bash ecs.sh -m 5 1 1```を実行すると、メインメニューのオプション5のサブオプション1のオプション1のスクリプトが実行されます | デフォルトでは1つのパラメータのみを指定します。例：``` -m 1```を実行すると、融合モンスターの完全体が実行されます。```-m 1 0```および```-m 1 0 0```を実行すると、どちらも融合モンスターの完全体が実行されます。 |
@@ -112,6 +135,8 @@ bash ecs.sh -en -m 1
 | -stype | オプション | ```cn```または```net```のデータを使用して速度をテストすることを指定します | このコマンドがない場合、デフォルトで```net```データを優先して速度をテストし、使用できない場合は```cn```データに切り替えます |
 | -bansp | オプション | 強制的に速度テストを行わないことを指定します | このコマンドがない場合、デフォルトで速度をテストします |
 | -banup | オプション | 強制的に共有リンクを生成しないことを指定します | このコマンドがない場合、デフォルトで共有リンクを生成します |
+
+</details>
 
 ## IP_Quality_Inspection
 
@@ -139,6 +164,9 @@ bash ipcheck.sh
 ```
 
 ## Fusion_Monster_Description
+
+<details>
+<summary>クリックして展開</summary>
 
 このプロジェクトは環境依存の問題を避けるため、`/root`パスで実行することをお勧めします。デフォルトでパッケージマネージャーを自動更新しますが、本番環境での使用は避けてください。ローカル設定を変更しないよう、前述のGoバージョンを使用することをお勧めします。
 
@@ -184,7 +212,12 @@ IP品質検出は完全にオリジナルです。バグや追加のデータベ
 VPSテスト、VPS速度テスト、VPS総合パフォーマンステスト、VPSリターンルートテスト、VPSストリーミングメディアテストなど、すべてのテスト融合スクリプト - このスクリプトは統合可能なすべてを統合しています。
 </details>
 
+</details>
+
 ## Fusion_Monster_Function
+
+<details>
+<summary>クリックして展開</summary>
 
 - [x] テスト方向と個別テストの自由な組み合わせ、および第三者スクリプトのコレクション。Fusion Monsterのテストは自己最適化および修正されており、元のスクリプトとは異なります。
 - [x] 基本情報のクエリ - [bench.sh](https://github.com/teddysun/across/blob/master/bench.sh)、[superbench.sh](https://www.oldking.net/350.html)、[yabs](https://github.com/masonr/yet-another-bench-script)、[lemonbench](https://github.com/LemonBench/LemonBench)のオープンソースに感謝します。私は整理、修正、最適化し、元のバージョンとは一致しません。
@@ -198,32 +231,14 @@ VPSテスト、VPS速度テスト、VPS総合パフォーマンステスト、VP
 - [x] IP品質およびポート25の検出（IPV4およびIPV6を含む） - このスクリプトはオリジナルであり、インターネットが提供するクエリリソースに感謝します。
 - [x] speedtest速度テスト - 自作の[ecsspeed](https://github.com/spiritLHLS/ecsspeed)リポジトリを使用し、速度テストサーバーIDを自動更新し、常に手動で速度テストIDを更新する問題を解決します。
 
+</details>
+
+
 # フレンドリーリンク
 
 ## レビュー_チャンネル
 
 https://t.me/+UHVoo2U4VyA5NTQ1
-
-# スクリーンショット
-
-<details>
-<summary>Click to show</summary>
-
-![画像](https://github.com/spiritLHLS/ecs/assets/103393591/0acecaea-8cbc-43a0-9262-e2fa157fb8e9)
-
-![画像](https://github.com/spiritLHLS/ecs/assets/103393591/d25713e1-eeb0-48c0-9d6f-6ac1a0f6b6df)
-
-![画像](https://github.com/spiritLHLS/ecs/assets/103393591/1b578739-4809-4ab0-8187-b860a502c8d9)
-
-![画像](https://github.com/spiritLHLS/ecs/assets/103393591/010d4e5d-561e-4aa3-8313-e592f29405d1)
-
-![画像](https://github.com/spiritLHLS/ecs/assets/103393591/bfe775ad-323c-4f6e-8d81-fcf787644653)
-
-<details>
-
-# Stargazers_over_time
-
-[![Stargazers Over Time](https://starchart.cc/spiritLHLS/ecs.svg)](https://starchart.cc/spiritLHLS/ecs)
 
 # 感謝
 
@@ -248,6 +263,23 @@ https://t.me/+UHVoo2U4VyA5NTQ1
 <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/" target="_blank">
   <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="ibm" style="height: 50px;">
 </a>
+
+# スクリーンショット
+
+<details>
+<summary>Click to show</summary>
+
+![画像](https://github.com/spiritLHLS/ecs/assets/103393591/0acecaea-8cbc-43a0-9262-e2fa157fb8e9)
+
+![画像](https://github.com/spiritLHLS/ecs/assets/103393591/d25713e1-eeb0-48c0-9d6f-6ac1a0f6b6df)
+
+![画像](https://github.com/spiritLHLS/ecs/assets/103393591/1b578739-4809-4ab0-8187-b860a502c8d9)
+
+![画像](https://github.com/spiritLHLS/ecs/assets/103393591/010d4e5d-561e-4aa3-8313-e592f29405d1)
+
+![画像](https://github.com/spiritLHLS/ecs/assets/103393591/bfe775ad-323c-4f6e-8d81-fcf787644653)
+
+</details>
 
 ## History Usage
 

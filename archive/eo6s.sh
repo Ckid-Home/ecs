@@ -20,6 +20,21 @@ for ((int = 0; int < ${#REGEX[@]}; int++)); do
         [[ -n $SYSTEM ]] && break
     fi
 done
+
+is_valid_ipv6() {
+    local address="$1"
+    [[ ${#address} -le 45 && "$address" == *:* && "$address" =~ ^[0-9A-Fa-f:.]+$ ]]
+}
+new_ipv6=""
+interface=""
+cleanup_ipv6() {
+    if [ -n "$new_ipv6" ] && [ -n "$interface" ]; then
+        ip addr del "${new_ipv6}/128" dev "$interface" >/dev/null 2>&1 || true
+        new_ipv6=""
+    fi
+}
+trap cleanup_ipv6 EXIT
+trap 'cleanup_ipv6; exit 1' INT TERM
 ${PACKAGE_INSTALL[int]} net-tools # 无后续维护了
 ${PACKAGE_INSTALL[int]} iproute2
 ipv6_prefixlen=$(ip -6 addr show | grep global | awk '{print length, $2}' | sort -nr | head -n 1 | awk '{print $2}' | cut -d '/' -f2)
@@ -31,17 +46,21 @@ elif [ "$ipv6_prefixlen" -eq 128 ]; then
 fi
 # interface=$(ls /sys/class/net/ | grep -v "$(ls /sys/devices/virtual/net/)" | grep -E '^(eth|en)' | head -n 1)
 interface=$(ls /sys/class/net/ | grep -E '^(eth|en)' | head -n 1)
-current_ipv6=$(curl -s -6 -m 5 ipv6.ip.sb)
+current_ipv6=$(curl -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
+is_valid_ipv6 "$current_ipv6" || exit 1
 echo "current_ipv6: ${current_ipv6}"
-[ -z "$current_ipv6" ] && exit 1
 new_ipv6="${current_ipv6%:*}:3"
-ip addr add ${new_ipv6}/128 dev ${interface}
+ip addr add "${new_ipv6}/128" dev "$interface" || exit 1
 sleep 5
-updated_ipv6=$(curl -s -6 -m 5 ipv6.ip.sb)
+updated_ipv6=$(curl -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
+is_valid_ipv6 "$updated_ipv6" || updated_ipv6=""
 echo "updated_ipv6: ${updated_ipv6}"
-ip addr del ${new_ipv6}/128 dev ${interface}
+if ip addr del "${new_ipv6}/128" dev "$interface"; then
+    new_ipv6=""
+fi
 sleep 5
-final_ipv6=$(curl -s -6 -m 5 ipv6.ip.sb)
+final_ipv6=$(curl -s -6 -m 5 --proto '=https' --proto-redir '=https' https://ipv6.ip.sb)
+is_valid_ipv6 "$final_ipv6" || final_ipv6=""
 echo "final_ipv6: ${final_ipv6}"
 # ipv6_prefixlen=""
 # if command -v ifconfig &> /dev/null; then

@@ -36,7 +36,11 @@ MY_GITHUB_API_LOG="$MY_DIR/github-gist.log"
 MY_OUTPUT="$MY_DIR/output.html"
 MY_GEEKBENCH_EMAIL=""
 MY_GEEKBENCH_KEY=""
-rm -rf "$MY_OUTPUT" Geekbench* gb5* geekbench.tar.gz*
+RUN_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/geekbench5.XXXXXX") || exit 1
+ARCHIVE_FILE="$RUN_TMP_DIR/geekbench.tar.gz"
+EXTRACT_DIR="$RUN_TMP_DIR/extracted"
+cleanup_temp_dir() { rm -rf -- "$RUN_TMP_DIR"; }
+trap cleanup_temp_dir EXIT
 #####################################################################
 #### END Configuration Section
 #####################################################################
@@ -46,10 +50,6 @@ MY_DATE_TIME=$(date -u "+%Y-%m-%d %H:%M:%S")
 MY_DATE_TIME+=" UTC"
 MY_TIMESTAMP_START=$(date "+%s")
 MY_GEEKBENCH_NO_UPLOAD=""
-
-if [[ ! -d "$MY_DIR" ]]; then
-	mkdir "$MY_DIR" || exit_with_failure "Could not create folder '$MY_DIR'"
-fi
 
 #####################################################################
 # Terminal output helpers
@@ -115,6 +115,16 @@ function echo_sub_step() {
 	echo "<h3>$1</h3>" >>"$MY_OUTPUT"
 }
 
+if [[ -L "$MY_DIR" ]]; then
+	exit 9
+elif [[ ! -d "$MY_DIR" ]]; then
+	mkdir "$MY_DIR" || exit_with_failure "Could not create folder '$MY_DIR'"
+fi
+UNSAFE_TARGET=$(find "$MY_DIR" \( -type l -o \( -type f -links +1 \) \) -print -quit 2>/dev/null) || exit 9
+[[ -n "$UNSAFE_TARGET" ]] && exit 9
+unset UNSAFE_TARGET
+rm -f -- "$MY_OUTPUT"
+
 echo_line
 
 while getopts "ne:k:g:h" opt; do
@@ -136,9 +146,13 @@ done
 
 # Download Geekbench 5
 echo "    > Download Geekbench 5"
-if curl -L -k "$MY_GEEKBENCH_DOWNLOAD_URL" -o geekbench.tar.gz 2>/dev/null && chmod +x geekbench.tar.gz; then
-	if tar xvfz geekbench.tar.gz -C "$MY_DIR" --strip-components=1 >/dev/null 2>&1; then
-		if [[ -x "$MY_DIR/geekbench5" ]]; then
+if curl --fail --location --proto '=https' --proto-redir '=https' "$MY_GEEKBENCH_DOWNLOAD_URL" -o "$ARCHIVE_FILE" 2>/dev/null; then
+	mkdir "$EXTRACT_DIR" || exit_with_failure "Could not unpack geekbench.tar.gz"
+	if ! tar tzf "$ARCHIVE_FILE" | grep -Eq '(^|/)\.\.(/|$)|^/' &&
+		! tar tvzf "$ARCHIVE_FILE" 2>/dev/null | grep -Eq '^[^d-]' &&
+		tar xvfz "$ARCHIVE_FILE" -C "$EXTRACT_DIR" --strip-components=1 >/dev/null 2>&1 &&
+		cp -a "$EXTRACT_DIR"/. "$MY_DIR"/; then
+		if [[ -f "$MY_DIR/geekbench5" && ! -L "$MY_DIR/geekbench5" && -x "$MY_DIR/geekbench5" ]]; then
 			echo "        > Geekbench successfully downloaded"
 		else
 			exit_with_failure "Could not find '$MY_DIR/geekbench5'"
@@ -171,17 +185,25 @@ echo_line
 
 echo_title "Geekbench 5"
 if [[ $MY_GEEKBENCH_NO_UPLOAD ]]; then
-	"$MY_DIR/geekbench5" --no-upload >>"$MY_OUTPUT" 2>&1
+	"$MY_DIR/geekbench5" --no-upload >>"$MY_OUTPUT" 2>&1 || exit_with_failure "Could not run Geekbench"
 else
-	"$MY_DIR/geekbench5" --upload >>"$MY_OUTPUT" 2>&1
+	"$MY_DIR/geekbench5" --upload >>"$MY_OUTPUT" 2>&1 || exit_with_failure "Could not run Geekbench"
 fi
 # cat "$MY_OUTPUT"
-GEEKBENCH_URL=$(cat "$MY_OUTPUT" | grep -o 'https://browser.geekbench.com/v5/cpu/[0-9]\+' | head -n1)
-[[ ! -z $LOCAL_CURL ]] && DL_CMD="curl -s" || DL_CMD="wget -qO-"
-GEEKBENCH_SCORES=$($DL_CMD $GEEKBENCH_URL | grep "div class='score'") ||
-	GEEKBENCH_SCORES=$($DL_CMD $GEEKBENCH_URL | grep "span class='score'")
-GEEKBENCH_SCORES_SINGLE=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $3 }')
-GEEKBENCH_SCORES_MULTI=$(echo $GEEKBENCH_SCORES | awk -v FS="(>|<)" '{ print $7 }')
+GEEKBENCH_URL=$(grep -o 'https://browser.geekbench.com/v5/cpu/[0-9]\+' "$MY_OUTPUT" | head -n1)
+if [[ -z $MY_GEEKBENCH_NO_UPLOAD && -z $GEEKBENCH_URL ]]; then
+	exit_with_failure "Could not find Geekbench result URL"
+fi
+GEEKBENCH_PAGE=""
+if [[ -n $GEEKBENCH_URL ]]; then
+	GEEKBENCH_PAGE=$(curl --fail --silent --location --max-time 15 --max-filesize 1048576 --proto '=https' --proto-redir '=https' "$GEEKBENCH_URL" 2>/dev/null) || GEEKBENCH_PAGE=""
+fi
+GEEKBENCH_SCORES=$(printf '%s' "$GEEKBENCH_PAGE" | grep "div class='score'") ||
+	GEEKBENCH_SCORES=$(printf '%s' "$GEEKBENCH_PAGE" | grep "span class='score'")
+GEEKBENCH_SCORES_SINGLE=$(printf '%s\n' "$GEEKBENCH_SCORES" | awk -v FS="(>|<)" '{ print $3 }')
+GEEKBENCH_SCORES_MULTI=$(printf '%s\n' "$GEEKBENCH_SCORES" | awk -v FS="(>|<)" '{ print $7 }')
+[[ "$GEEKBENCH_SCORES_SINGLE" =~ ^[0-9]+$ ]] || GEEKBENCH_SCORES_SINGLE=""
+[[ "$GEEKBENCH_SCORES_MULTI" =~ ^[0-9]+$ ]] || GEEKBENCH_SCORES_MULTI=""
 echo -en "\r\033[0K"
 echo -e "Geekbench $VERSION Benchmark Test:"
 printf "%-15s | %-30s\n" "Test" "Value"
@@ -189,5 +211,5 @@ printf "%-15s | %-30s\n"
 printf "%-15s | %-30s\n" "Single Core" "$GEEKBENCH_SCORES_SINGLE"
 printf "%-15s | %-30s\n" "Multi Core" "$GEEKBENCH_SCORES_MULTI"
 printf "%-15s | %-30s\n" "Full Test" "$GEEKBENCH_URL"
-rm -rf "$MY_OUTPUT" Geekbench* gb5* geekbench.tar.gz*
+rm -f -- "$MY_OUTPUT" "$ARCHIVE_FILE"
 echo_line
