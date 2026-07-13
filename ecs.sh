@@ -676,7 +676,7 @@ display_progress() {
         if [ "$all_completed" = true ]; then
             break
         fi
-        sleep 3.5
+        sleep 0.5
     done
     # 显示光标
     echo -en "$SHOW_CURSOR"
@@ -718,7 +718,11 @@ download_file() {
     local progress_file=$3
     # 获取文件总大小
     local total_size
-    total_size=$(curl -sIL --proto '=https' --proto-redir '=https' "$url" | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+    total_size=$(curl -sIL --proto '=https' --proto-redir '=http,https' "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+    # 如果上述方式获取失败，尝试不限制协议重试（CDN内部可能使用HTTP）
+    if [ -z "$total_size" ] || [ "$total_size" -eq 0 ] 2>/dev/null; then
+        total_size=$(curl -sIL "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+    fi
     total_size=${total_size:-0}
     # 去掉前导零，避免被当作八进制
     total_size=$((10#$total_size))
@@ -726,8 +730,9 @@ download_file() {
     if ! [[ "$total_size" =~ ^[0-9]+$ ]]; then
         total_size=0
     fi
-    if [ "$total_size" -eq 0 ]; then
-        echo "无法获取 $url 的文件大小,将使用 0 作为默认值。" >&2
+    if [ "$total_size" -eq 0 ] 2>/dev/null; then
+        # 静默处理，不影响下载流程
+        total_size=0
     fi
 
     # 后台进度监控：轮询输出文件大小并写入进度文件，直到下载进程退出
